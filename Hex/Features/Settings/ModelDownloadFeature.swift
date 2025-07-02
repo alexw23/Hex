@@ -443,10 +443,6 @@ private struct CuratedRow: View {
 						Image(systemName: "checkmark.circle.fill")
 							.foregroundColor(.green)
 					}
-					if isSelected {
-						Image(systemName: "checkmark")
-							.foregroundColor(.blue)
-					}
 				}
 				.frame(minWidth: 80, alignment: .leading)
 				Spacer()
