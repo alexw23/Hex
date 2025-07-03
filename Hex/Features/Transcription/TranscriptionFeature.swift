@@ -12,6 +12,7 @@ import SwiftUI
 import WhisperKit
 import IOKit
 import IOKit.pwr_mgt
+import os.log
 
 @Reducer
 struct TranscriptionFeature {
@@ -22,6 +23,7 @@ struct TranscriptionFeature {
     var isPrewarming: Bool = false
     var error: String?
     var recordingStartTime: Date?
+    var recordingMode: HotKeyProcessor.RecordingMode? = nil
     var meter: Meter = .init(averagePower: 0, peakPower: 0)
     var assertionID: IOPMAssertionID?
     @Shared(.hexSettings) var hexSettings: HexSettings
@@ -37,7 +39,7 @@ struct TranscriptionFeature {
     case hotKeyReleased
 
     // Recording flow
-    case startRecording
+    case startRecording(mode: HotKeyProcessor.RecordingMode)
     case stopRecording
 
     // Cancel entire flow
@@ -46,6 +48,10 @@ struct TranscriptionFeature {
     // Transcription result flow
     case transcriptionResult(String)
     case transcriptionError(Error)
+    
+    // OpenAI processing flow
+    case openAIResult(String)
+    case openAIError(Error)
   }
 
   enum CancelID {
@@ -59,6 +65,8 @@ struct TranscriptionFeature {
   @Dependency(\.pasteboard) var pasteboard
   @Dependency(\.keyEventMonitor) var keyEventMonitor
   @Dependency(\.soundEffects) var soundEffect
+  @Dependency(\.openAI) var openAI
+  @Dependency(\.context) var context
 
   var body: some ReducerOf<Self> {
     Reduce { state, action in
@@ -94,8 +102,8 @@ struct TranscriptionFeature {
 
       // MARK: - Recording Flow
 
-      case .startRecording:
-        return handleStartRecording(&state)
+      case let .startRecording(mode):
+        return handleStartRecording(&state, mode: mode)
 
       case .stopRecording:
         return handleStopRecording(&state)
@@ -107,6 +115,14 @@ struct TranscriptionFeature {
 
       case let .transcriptionError(error):
         return handleTranscriptionError(&state, error: error)
+      
+      // MARK: - OpenAI Processing
+
+      case let .openAIResult(result):
+        return handleOpenAIResult(&state, result: result)
+
+      case let .openAIError(error):
+        return handleOpenAIError(&state, error: error)
 
       // MARK: - Cancel Entire Flow
 
@@ -162,10 +178,10 @@ private extension TranscriptionFeature {
 
         // Process the key event
         switch hotKeyProcessor.process(keyEvent: keyEvent) {
-        case .startRecording:
-          // If double-tap lock is triggered, we start recording immediately
-          if hotKeyProcessor.state == .doubleTapLock {
-            Task { await send(.startRecording) }
+        case let .startRecording(mode):
+          // If double-tap or triple-tap lock is triggered, we start recording immediately
+          if hotKeyProcessor.state == .doubleTapLock || hotKeyProcessor.state == .tripleTapLock {
+            Task { await send(.startRecording(mode: mode)) }
           } else {
             Task { await send(.hotKeyPressed) }
           }
@@ -207,7 +223,7 @@ private extension TranscriptionFeature {
     // (like a double-tap).
     let delayedStart = Effect.run { send in
       try await Task.sleep(for: .milliseconds(200))
-      await send(Action.startRecording)
+      await send(Action.startRecording(mode: .pressAndHold))
     }
     .cancellable(id: CancelID.delayedRecord, cancelInFlight: true)
 
@@ -228,9 +244,10 @@ private extension TranscriptionFeature {
 // MARK: - Recording Handlers
 
 private extension TranscriptionFeature {
-  func handleStartRecording(_ state: inout State) -> Effect<Action> {
+  func handleStartRecording(_ state: inout State, mode: HotKeyProcessor.RecordingMode) -> Effect<Action> {
     state.isRecording = true
     state.recordingStartTime = Date()
+    state.recordingMode = mode
 
     // Prevent system sleep during recording
     if state.hexSettings.preventSystemSleep {
@@ -305,23 +322,107 @@ private extension TranscriptionFeature {
     _ state: inout State,
     result: String
   ) -> Effect<Action> {
-    state.isTranscribing = false
-    state.isPrewarming = false
-
+    // DIRECT CONSOLE OUTPUT - This will definitely show up!
+    print("🎯🎯🎯 TRANSCRIPTION RESULT: '\(result)'")
+    print("🎯🎯🎯 OpenAI Enabled: \(state.hexSettings.useOpenAI)")
+    print("🎯🎯🎯 Has API Key: \(!state.hexSettings.openAIAPIKey.isEmpty)")
+    print("🎯🎯🎯 Model: \(state.hexSettings.openAIModel)")
+    
+    let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+    logger.info("🎯 [TranscriptionFeature] handleTranscriptionResult called with text: '\(result)'")
+    
+    // Extract values to avoid capturing inout parameter
+    let useOpenAI = state.hexSettings.useOpenAI
+    let hasAPIKey = !state.hexSettings.openAIAPIKey.isEmpty
+    let model = state.hexSettings.openAIModel
+    
+    logger.info("🎯 [TranscriptionFeature] Settings - useOpenAI: \(useOpenAI)")
+    logger.info("🎯 [TranscriptionFeature] Settings - hasAPIKey: \(hasAPIKey)")
+    logger.info("🎯 [TranscriptionFeature] Settings - model: \(model)")
+    
     // If empty text, nothing else to do
     guard !result.isEmpty else {
+      print("⚠️⚠️⚠️ EMPTY TRANSCRIPTION RESULT!")
+      logger.warning("⚠️ [TranscriptionFeature] Empty transcription result, stopping")
+      state.isTranscribing = false
+      state.isPrewarming = false
       return .none
     }
 
-    // Compute how long we recorded
-    let duration = state.recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+    // Check if we should process through OpenAI (only for triple-tap recordings)
+    if state.recordingMode == .tripleTap && state.hexSettings.useOpenAI && !state.hexSettings.openAIAPIKey.isEmpty {
+      print("🤖🤖🤖 STARTING OPENAI PROCESSING!")
+      print("🤖🤖🤖 API Key length: \(state.hexSettings.openAIAPIKey.count)")
+      print("🤖🤖🤖 Model: \(state.hexSettings.openAIModel)")
+      
+      let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+      logger.info("🎤 [TranscriptionFeature] OpenAI processing enabled, starting...")
+      
+      // Extract values before entering the closure to avoid capturing inout parameter
+      let apiKey = state.hexSettings.openAIAPIKey
+      let model = state.hexSettings.openAIModel
+      let systemPrompt = state.hexSettings.openAISystemPrompt
+      
+      logger.info("🎤 [TranscriptionFeature] Using model: \(model)")
+      logger.info("🎤 [TranscriptionFeature] API key available: \(apiKey.count > 0 ? "YES" : "NO")")
+      logger.info("🎤 [TranscriptionFeature] Transcribed text: '\(result)'")
+      
+      // Keep transcribing state while processing through OpenAI
+      return .run { send in
+        let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+        do {
+          logger.info("🎤 [TranscriptionFeature] Getting clipboard context...")
+          let clipboardContext = await context.getClipboardContext()
+          logger.info("🎤 [TranscriptionFeature] Clipboard context: '\(clipboardContext)'")
+          
+          logger.info("🎤 [TranscriptionFeature] Calling OpenAI API...")
+          let openAIResult = try await openAI.processTranscription(
+            result,
+            clipboardContext,
+            apiKey,
+            model,
+            systemPrompt
+          )
+          
+          logger.info("🎤 [TranscriptionFeature] OpenAI success! Sending result: '\(openAIResult)'")
+          await send(.openAIResult(openAIResult))
+        } catch {
+          logger.error("❌ [TranscriptionFeature] OpenAI failed: \(error.localizedDescription)")
+          await send(.openAIError(error))
+        }
+      }
+    } else {
+      print("❌❌❌ NOT USING OPENAI!")
+      print("❌❌❌ Recording Mode: \(state.recordingMode?.debugDescription ?? "nil")")
+      print("❌❌❌ OpenAI Enabled: \(state.hexSettings.useOpenAI)")
+      print("❌❌❌ API Key Present: \(!state.hexSettings.openAIAPIKey.isEmpty)")
+      print("❌❌❌ Using regular transcription instead")
+      
+      let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+      logger.info("🎤 [TranscriptionFeature] OpenAI disabled or no API key, using regular transcription")
+      
+      // Extract values to avoid capturing inout parameter
+      let openAIEnabled = state.hexSettings.useOpenAI
+      let apiKeyPresent = !state.hexSettings.openAIAPIKey.isEmpty
+      
+      logger.info("🎤 [TranscriptionFeature] OpenAI enabled: \(openAIEnabled)")
+      logger.info("🎤 [TranscriptionFeature] API key present: \(apiKeyPresent)")
+      
+      // Process directly without OpenAI
+      state.isTranscribing = false
+      state.isPrewarming = false
+      state.recordingMode = nil
 
-    // Continue with storing the final result in the background
-    return finalizeRecordingAndStoreTranscript(
-      result: result,
-      duration: duration,
-      transcriptionHistory: state.$transcriptionHistory
-    )
+      // Compute how long we recorded
+      let duration = state.recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+
+      // Continue with storing the final result in the background
+      return finalizeRecordingAndStoreTranscript(
+        result: result,
+        duration: duration,
+        transcriptionHistory: state.$transcriptionHistory
+      )
+    }
   }
 
   func handleTranscriptionError(
@@ -330,6 +431,7 @@ private extension TranscriptionFeature {
   ) -> Effect<Action> {
     state.isTranscribing = false
     state.isPrewarming = false
+    state.recordingMode = nil
     state.error = error.localizedDescription
 
     return .run { _ in
@@ -405,6 +507,53 @@ private extension TranscriptionFeature {
       }
     }
   }
+  
+  func handleOpenAIResult(
+    _ state: inout State,
+    result: String
+  ) -> Effect<Action> {
+    let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+    logger.info("✅ [TranscriptionFeature] handleOpenAIResult called with: '\(result)'")
+    
+    state.isTranscribing = false
+    state.isPrewarming = false
+    state.recordingMode = nil
+
+    // If empty text, nothing else to do
+    guard !result.isEmpty else {
+      logger.warning("⚠️ [TranscriptionFeature] OpenAI result is empty, doing nothing")
+      return .none
+    }
+
+    // Compute how long we recorded
+    let duration = state.recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+
+    logger.info("✅ [TranscriptionFeature] Finalizing OpenAI result...")
+    // Continue with storing the final result in the background
+    return finalizeRecordingAndStoreTranscript(
+      result: result,
+      duration: duration,
+      transcriptionHistory: state.$transcriptionHistory
+    )
+  }
+
+  func handleOpenAIError(
+    _ state: inout State,
+    error: Error
+  ) -> Effect<Action> {
+    let logger = Logger(subsystem: "com.kitlangton.Hex", category: "Transcription")
+    logger.error("❌ [TranscriptionFeature] handleOpenAIError called with: \(error.localizedDescription)")
+    logger.error("❌ [TranscriptionFeature] Error description: \(error.localizedDescription)")
+    
+    state.isTranscribing = false
+    state.isPrewarming = false
+    state.recordingMode = nil
+    state.error = error.localizedDescription
+
+    return .run { _ in
+      await soundEffect.play(.cancel)
+    }
+  }
 }
 
 // MARK: - Cancel Handler
@@ -414,6 +563,7 @@ private extension TranscriptionFeature {
     state.isTranscribing = false
     state.isRecording = false
     state.isPrewarming = false
+    state.recordingMode = nil
 
     return .merge(
       .cancel(id: CancelID.transcription),
@@ -461,7 +611,12 @@ struct TranscriptionView: View {
 
   var status: TranscriptionIndicatorView.Status {
     if store.isTranscribing {
-      return .transcribing
+      // Check if we're processing through OpenAI
+      if store.hexSettings.useOpenAI && !store.hexSettings.openAIAPIKey.isEmpty {
+        return .openAIProcessing
+      } else {
+        return .transcribing
+      }
     } else if store.isRecording {
       return .recording
     } else if store.isPrewarming {

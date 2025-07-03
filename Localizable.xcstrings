@@ -241,6 +241,9 @@
     "Enable in Settings" : {
 
     },
+    "Enable OpenAI Processing" : {
+
+    },
     "Ensure Hex can access your microphone and system accessibility features." : {
       "comment" : "Footer for permissions section in settings",
       "localizations" : {
@@ -273,6 +276,18 @@
           }
         }
       }
+    },
+    "GPT-3.5 Turbo" : {
+
+    },
+    "GPT-4 Turbo" : {
+
+    },
+    "GPT-4o" : {
+
+    },
+    "GPT-4o Mini" : {
+
     },
     "Granted" : {
       "comment" : "Label title for granted permissions.",
@@ -339,7 +354,6 @@
     },
     "Microphone" : {
       "comment" : "Microphone permission.",
-      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -350,9 +364,6 @@
       }
     },
     "Microphone Selection" : {
-
-    },
-    "Microphone!" : {
 
     },
     "Model" : {
@@ -397,6 +408,18 @@
           }
         }
       }
+    },
+    "OpenAI API Key" : {
+
+    },
+    "OpenAI API key is required for processing. Get your API key from https://platform.openai.com/" : {
+
+    },
+    "OpenAI Integration" : {
+
+    },
+    "OpenAI Model" : {
+
     },
     "Output Language" : {
       "comment" : "transcription model setting for which language to use for text output.",
@@ -455,6 +478,12 @@
           }
         }
       }
+    },
+    "Process transcriptions through OpenAI for enhanced responses" : {
+
+    },
+    "Processing with OpenAI..." : {
+
     },
     "Quit" : {
 
@@ -602,6 +631,9 @@
     "System Default" : {
 
     },
+    "System Instructions" : {
+
+    },
     "Transcription history is currently disabled." : {
 
     },
@@ -667,6 +699,9 @@
       }
     },
     "When disabled, transcriptions will not be saved and audio files will be deleted immediately after transcription." : {
+
+    },
+    "When enabled, transcribed text will be combined with clipboard content and sent to OpenAI for processing. The OpenAI response will be pasted instead of the raw transcription." : {
 
     },
     "You're using a full keyboard shortcut. Double-tap is recommended." : {

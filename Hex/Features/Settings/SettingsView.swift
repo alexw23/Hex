@@ -248,6 +248,73 @@ struct SettingsView: View {
 				Text("General")
 			}
 
+			// --- OpenAI Section ---
+			Section {
+				Label {
+					Toggle("Enable OpenAI Processing", isOn: $store.hexSettings.useOpenAI)
+					Text("Process transcriptions through OpenAI for enhanced responses (triple-tap only)")
+						.font(.caption)
+						.foregroundColor(.secondary)
+				} icon: {
+					Image(systemName: "brain.head.profile")
+				}
+
+				if store.hexSettings.useOpenAI {
+					Label {
+						SecureField("OpenAI API Key", text: $store.hexSettings.openAIAPIKey)
+							.textFieldStyle(.roundedBorder)
+					} icon: {
+						Image(systemName: "key.fill")
+					}
+
+					Label {
+						Picker("OpenAI Model", selection: $store.hexSettings.openAIModel) {
+							Text("GPT-4o").tag("gpt-4o")
+							Text("GPT-4o Mini").tag("gpt-4o-mini")
+							Text("GPT-4 Turbo").tag("gpt-4-turbo")
+							Text("GPT-3.5 Turbo").tag("gpt-3.5-turbo")
+						}
+						.pickerStyle(.menu)
+					} icon: {
+						Image(systemName: "cpu")
+					}
+
+					Label {
+						VStack(alignment: .leading) {
+							Text("System Instructions")
+								.font(.headline)
+							TextEditor(text: $store.hexSettings.openAISystemPrompt)
+								.font(.body)
+								.frame(minHeight: 100)
+								.scrollContentBackground(.hidden)
+								.background(Color(.textBackgroundColor))
+								.cornerRadius(8)
+								.overlay(
+									RoundedRectangle(cornerRadius: 8)
+										.stroke(Color(.separatorColor), lineWidth: 1)
+								)
+						}
+					} icon: {
+						Image(systemName: "doc.text")
+					}
+
+					if store.hexSettings.openAIAPIKey.isEmpty {
+						Text("OpenAI API key is required for processing. Get your API key from https://platform.openai.com/")
+							.font(.caption)
+							.foregroundColor(.orange)
+							.padding(.leading, 28)
+					}
+				}
+			} header: {
+				Text("OpenAI Integration")
+			} footer: {
+				if store.hexSettings.useOpenAI {
+					Text("When enabled, triple-tap recordings will combine transcribed text with clipboard content and send to OpenAI for processing. The OpenAI response will be pasted instead of the raw transcription. Single-tap and double-tap recordings use regular transcription.")
+						.font(.footnote)
+						.foregroundColor(.secondary)
+				}
+			}
+
 			// --- History Section ---
 			Section {
 				Label {

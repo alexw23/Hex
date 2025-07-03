@@ -38,6 +38,7 @@ public struct HotKeyProcessor {
 
     public private(set) var state: State = .idle
     private var lastTapAt: Date? // Time of the most recent release
+    private var tapCount: Int = 0 // Number of consecutive taps
     private var isDirty: Bool = false
 
     public static let doubleTapThreshold: TimeInterval = 0.3
@@ -52,7 +53,7 @@ public struct HotKeyProcessor {
         switch state {
         case .idle:
             return false
-        case .pressAndHold, .doubleTapLock:
+        case .pressAndHold, .doubleTapLock, .tripleTapLock:
             return true
         }
     }
@@ -96,12 +97,32 @@ public extension HotKeyProcessor {
         case idle
         case pressAndHold(startTime: Date)
         case doubleTapLock
+        case tripleTapLock
     }
 
     enum Output: Equatable {
-        case startRecording
+        case startRecording(mode: RecordingMode)
         case stopRecording
         case cancel
+    }
+    
+    enum RecordingMode: Equatable {
+        case pressAndHold
+        case doubleTap
+        case tripleTap
+    }
+}
+
+extension HotKeyProcessor.RecordingMode: CustomDebugStringConvertible {
+    var debugDescription: String {
+        switch self {
+        case .pressAndHold:
+            return "pressAndHold"
+        case .doubleTap:
+            return "doubleTap"
+        case .tripleTap:
+            return "tripleTap"
+        }
     }
 }
 
@@ -117,12 +138,17 @@ extension HotKeyProcessor {
             // we want to delay starting recording until we see the double-tap
             if useDoubleTapOnly && hotkey.key != nil {
                 // Record the timestamp but don't start recording
+                // Reset tap count if this is the first tap or if too much time has passed
+                if let prevTapTime = lastTapAt,
+                   now.timeIntervalSince(prevTapTime) >= Self.doubleTapThreshold {
+                    tapCount = 0
+                }
                 lastTapAt = now
                 return nil
             } else {
                 // Normal press => .pressAndHold => .startRecording
                 state = .pressAndHold(startTime: now)
-                return .startRecording
+                return .startRecording(mode: .pressAndHold)
             }
 
         case .pressAndHold:
@@ -133,6 +159,11 @@ extension HotKeyProcessor {
             // Pressing hotkey again while locked => stop
             resetToIdle()
             return .stopRecording
+            
+        case .tripleTapLock:
+            // Pressing hotkey again while triple-tap locked => stop
+            resetToIdle()
+            return .stopRecording
         }
     }
 
@@ -140,7 +171,7 @@ extension HotKeyProcessor {
     private mutating func handleNonmatchingChord(_ e: KeyEvent) -> Output? {
         switch state {
         case .idle:
-            // Handle double-tap detection for key+modifier combinations
+            // Handle tap detection for key+modifier combinations
             if useDoubleTapOnly && hotkey.key != nil && 
                chordIsFullyReleased(e) && 
                lastTapAt != nil {
@@ -148,13 +179,25 @@ extension HotKeyProcessor {
                 // Check if the time between taps is within the threshold
                 if let prevTapTime = lastTapAt,
                    now.timeIntervalSince(prevTapTime) < Self.doubleTapThreshold {
-                    // This is the second tap - activate recording in double-tap lock mode
-                    state = .doubleTapLock
-                    return .startRecording
+                    tapCount += 1
+                    
+                    if tapCount == 1 {
+                        // This is the second tap - activate recording in double-tap lock mode
+                        state = .doubleTapLock
+                        return .startRecording(mode: .doubleTap)
+                    } else if tapCount == 2 {
+                        // This is the third tap - activate recording in triple-tap lock mode
+                        state = .tripleTapLock
+                        return .startRecording(mode: .tripleTap)
+                    }
+                    
+                    // Update the last tap time for potential fourth tap (but we don't handle that)
+                    lastTapAt = now
+                } else {
+                    // Time threshold exceeded, reset tap count
+                    tapCount = 0
+                    lastTapAt = nil
                 }
-                
-                // Reset the tap timer as we've fully released
-                lastTapAt = nil
             }
             return nil
 
@@ -189,6 +232,15 @@ extension HotKeyProcessor {
 
         case .doubleTapLock:
             // For key+modifier combinations in doubleTapLock mode, require full key release to stop
+            if useDoubleTapOnly && hotkey.key != nil && chordIsFullyReleased(e) {
+                resetToIdle()
+                return .stopRecording
+            }
+            // Otherwise, if locked, ignore everything except chord == hotkey => stop
+            return nil
+            
+        case .tripleTapLock:
+            // For key+modifier combinations in tripleTapLock mode, require full key release to stop
             if useDoubleTapOnly && hotkey.key != nil && chordIsFullyReleased(e) {
                 resetToIdle()
                 return .stopRecording
@@ -243,5 +295,6 @@ extension HotKeyProcessor {
     private mutating func resetToIdle() {
         state = .idle
         lastTapAt = nil
+        tapCount = 0
     }
 }

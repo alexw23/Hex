@@ -19,6 +19,12 @@ struct HexSettings: Codable, Equatable {
 	var selectedMicrophoneID: String? = nil
 	var saveTranscriptionHistory: Bool = true
 	var maxHistoryEntries: Int? = nil
+	
+	// OpenAI Settings
+	var useOpenAI: Bool = false
+	var openAIAPIKey: String = ""
+	var openAIModel: String = "gpt-4o-mini"
+	var openAISystemPrompt: String = "You are a helpful assistant that processes voice transcriptions. Based on the transcribed text and any provided context, generate an appropriate response or action."
 
 	// Define coding keys to match struct properties
 	enum CodingKeys: String, CodingKey {
@@ -37,6 +43,10 @@ struct HexSettings: Codable, Equatable {
 		case selectedMicrophoneID
 		case saveTranscriptionHistory
 		case maxHistoryEntries
+		case useOpenAI
+		case openAIAPIKey
+		case openAIModel
+		case openAISystemPrompt
 	}
 
 	init(
@@ -54,7 +64,11 @@ struct HexSettings: Codable, Equatable {
 		outputLanguage: String? = nil,
 		selectedMicrophoneID: String? = nil,
 		saveTranscriptionHistory: Bool = true,
-		maxHistoryEntries: Int? = nil
+		maxHistoryEntries: Int? = nil,
+		useOpenAI: Bool = false,
+		openAIAPIKey: String = "",
+		openAIModel: String = "gpt-4o-mini",
+		openAISystemPrompt: String = "You are a helpful assistant that processes voice transcriptions. Based on the transcribed text and any provided context, generate an appropriate response or action."
 	) {
 		self.soundEffectsEnabled = soundEffectsEnabled
 		self.hotkey = hotkey
@@ -71,6 +85,10 @@ struct HexSettings: Codable, Equatable {
 		self.selectedMicrophoneID = selectedMicrophoneID
 		self.saveTranscriptionHistory = saveTranscriptionHistory
 		self.maxHistoryEntries = maxHistoryEntries
+		self.useOpenAI = useOpenAI
+		self.openAIAPIKey = openAIAPIKey
+		self.openAIModel = openAIModel
+		self.openAISystemPrompt = openAISystemPrompt
 	}
 
 	// Custom decoder that handles missing fields
@@ -104,6 +122,12 @@ struct HexSettings: Codable, Equatable {
 		saveTranscriptionHistory =
 			try container.decodeIfPresent(Bool.self, forKey: .saveTranscriptionHistory) ?? true
 		maxHistoryEntries = try container.decodeIfPresent(Int.self, forKey: .maxHistoryEntries)
+		
+		// OpenAI Settings
+		useOpenAI = try container.decodeIfPresent(Bool.self, forKey: .useOpenAI) ?? false
+		openAIAPIKey = try container.decodeIfPresent(String.self, forKey: .openAIAPIKey) ?? ""
+		openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4o-mini"
+		openAISystemPrompt = try container.decodeIfPresent(String.self, forKey: .openAISystemPrompt) ?? "You are a helpful assistant that processes voice transcriptions. Based on the transcribed text and any provided context, generate an appropriate response or action."
 	}
 }
 
