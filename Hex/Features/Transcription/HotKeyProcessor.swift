@@ -114,7 +114,7 @@ public extension HotKeyProcessor {
 }
 
 extension HotKeyProcessor.RecordingMode: CustomDebugStringConvertible {
-    var debugDescription: String {
+    public var debugDescription: String {
         switch self {
         case .pressAndHold:
             return "pressAndHold"
